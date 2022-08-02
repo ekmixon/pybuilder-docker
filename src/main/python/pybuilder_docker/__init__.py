@@ -37,9 +37,9 @@ def do_docker_package(project, logger):
     # is true if user set verbose in build.py or from command line
     verbose = project.get_property("verbose")
     project.set_property_if_unset("docker_package_verbose_output", verbose)
-    temp_build_img = 'pyb-temp-{}:{}'.format(project.name, project.version)
+    temp_build_img = f'pyb-temp-{project.name}:{project.version}'
     build_img = get_build_img(project)
-    logger.info("Executing primary stage docker build for image - {}.".format(build_img))
+    logger.info(f"Executing primary stage docker build for image - {build_img}.")
     # docker build --build-arg buildVersion=${BUILD_NUMBER} -t ${BUILD_IMG} src/
     command = ExternalCommandBuilder('docker', project)
     command.use_argument('build')
@@ -48,27 +48,31 @@ def do_docker_package(project, logger):
     command.use_argument('-t')
     command.use_argument('{0}').formatted_with(temp_build_img)
     command.use_argument('{0}').formatted_with_property('docker_package_build_dir')
-    result = command.run("{}/{}".format(report_dir, 'docker_package_build'))
+    result = command.run(f"{report_dir}/docker_package_build")
     if result.exit_code !=0:
         logger.error(result.error_report_lines)
         raise Exception("Error building primary stage docker image")
     write_docker_build_file(project=project, logger=logger, build_image=temp_build_img, dist_dir=dist_dir)
     copy_dist_file(project=project, dist_dir=dist_dir, logger=logger)
-    logger.info("Executing secondary stage docker build for image - {}.".format(build_img))
+    logger.info(f"Executing secondary stage docker build for image - {build_img}.")
     command = ExternalCommandBuilder('docker', project)
     command.use_argument('build')
     command.use_argument('-t')
     command.use_argument('{0}').formatted_with(build_img)
     command.use_argument('{0}').formatted_with(dist_dir)
-    result = command.run("{}/{}".format(report_dir, 'docker_package_img'))
+    result = command.run(f"{report_dir}/docker_package_img")
     if result.exit_code !=0:
         logger.error(result.error_report_lines)
         raise Exception("Error building docker image")
-    logger.info("Finished build docker image - {} - with dist file - {}".format(build_img, dist_dir))
+    logger.info(
+        f"Finished build docker image - {build_img} - with dist file - {dist_dir}"
+    )
 
 
 def get_build_img(project):
-    return project.get_property('docker_package_build_img', '{}:{}'.format(project.name, project.version))
+    return project.get_property(
+        'docker_package_build_img', f'{project.name}:{project.version}'
+    )
 
 
 @task(description="Publish artifact into a docker registry.")
@@ -85,7 +89,7 @@ def _ecr_login(project, registry):
     command.use_argument('text')
     command.use_argument('--query')
     command.use_argument('authorizationData[].authorizationToken')
-    res = command.run("{}/{}".format(prepare_reports_directory(project), 'docker_ecr_get_token'))
+    res = command.run(f"{prepare_reports_directory(project)}/docker_ecr_get_token")
     if res.exit_code > 0:
         raise Exception("Error getting token")
     pass_token = base64.b64decode(res.report_lines[0])
@@ -97,7 +101,10 @@ def _ecr_login(project, registry):
     command.use_argument('-p')
     command.use_argument('{0}').formatted_with(split[1])
     command.use_argument('{0}').formatted_with(registry)
-    res = command.run("{}/{}".format(prepare_reports_directory(project), 'docker_ecr_docker_login'))
+    res = command.run(
+        f"{prepare_reports_directory(project)}/docker_ecr_docker_login"
+    )
+
     if res.exit_code > 0:
         raise Exception("Error authenticating")
         # aws ecr get-authorization-token --output text --query 'authorizationData[].authorizationToken' | base64 -D | cut -d: -f2
@@ -106,8 +113,9 @@ def _ecr_login(project, registry):
 
 def _prep_ecr(project, fq_artifact, registry):
     _ecr_login(project, registry)
-    create_ecr_registry = project.get_property("ensure_ecr_registry_created", True)
-    if create_ecr_registry:
+    if create_ecr_registry := project.get_property(
+        "ensure_ecr_registry_created", True
+    ):
         _create_ecr_registry(fq_artifact, project)
 
 
@@ -117,16 +125,22 @@ def _create_ecr_registry(fq_artifact, project):
     command.use_argument('describe-repositories')
     command.use_argument('--repository-names')
     command.use_argument('{0}').formatted_with(fq_artifact)
-    res = command.run("{}/{}".format(prepare_reports_directory(project), 'docker_ecr_registry_discover'))
+    res = command.run(
+        f"{prepare_reports_directory(project)}/docker_ecr_registry_discover"
+    )
+
     if res.exit_code > 0:
         command = ExternalCommandBuilder('aws', project)
         command.use_argument('ecr')
         command.use_argument('create-repository')
         command.use_argument('--repository-name')
         command.use_argument('{0}').formatted_with(fq_artifact)
-        res = command.run("{}/{}".format(prepare_reports_directory(project), 'docker_ecr_registry_create'))
-        if res.exit_code > 0:
-            raise Exception("Unable to create ecr registry")
+        res = command.run(
+            f"{prepare_reports_directory(project)}/docker_ecr_registry_create"
+        )
+
+    if res.exit_code > 0:
+        raise Exception("Unable to create ecr registry")
 
 
 def do_docker_push(project, logger):
@@ -157,25 +171,25 @@ def generate_artifact_manifest(project, registry_path):
 
 
 def _run_tag_cmd(project, local_img, remote_img, logger):
-    logger.info("Tagging local docker image {} - {}".format(local_img, remote_img))
+    logger.info(f"Tagging local docker image {local_img} - {remote_img}")
     report_dir = prepare_reports_directory(project)
     command = ExternalCommandBuilder('docker', project)
     command.use_argument('tag')
     command.use_argument('{0}').formatted_with(local_img)
     command.use_argument('{0}').formatted_with(remote_img)
-    command.run("{}/{}".format(report_dir, 'docker_push_tag'))
+    command.run(f"{report_dir}/docker_push_tag")
 
 
 def _run_push_cmd(project, remote_img, logger):
-    logger.info("Pushing remote docker image - {}".format(remote_img))
+    logger.info(f"Pushing remote docker image - {remote_img}")
     report_dir = prepare_reports_directory(project)
     command = ExternalCommandBuilder('docker', project)
     command.use_argument('push')
     command.use_argument('{0}').formatted_with(remote_img)
-    res = command.run("{}/{}".format(report_dir, 'docker_push_tag'))
+    res = command.run(f"{report_dir}/docker_push_tag")
     if res.exit_code >0:
         logger.info(res.error_report_lines)
-        raise Exception("Error pushing image to remote registry - {}".format(remote_img))
+        raise Exception(f"Error pushing image to remote registry - {remote_img}")
 
 
 #
@@ -202,7 +216,7 @@ def render_docker_buildfile(project, build_image):
     # type: (Project, str) -> str
 
     dist_file = get_dist_file(project)
-    default_package_cmd = "pip install {}".format(dist_file)
+    default_package_cmd = f"pip install {dist_file}"
     template_values = {
         "build_image": build_image,
         "dist_file": dist_file,
@@ -222,7 +236,7 @@ def get_dist_file(project):
 
 
 def randomWord(param):
-    return ''.join(random.choice(string.lowercase) for i in range(param))
+    return ''.join(random.choice(string.lowercase) for _ in range(param))
 
 
 def prepare_reports_directory(project):
@@ -234,7 +248,7 @@ def prepare_dist_directory(project):
 
 
 def prepare_directory(dir_variable, project):
-    package__format = "{}/docker".format(dir_variable)
+    package__format = f"{dir_variable}/docker"
     reports_dir = project.expand_path(package__format)
     if not os.path.exists(reports_dir):
         os.mkdir(reports_dir)
